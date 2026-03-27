@@ -7,13 +7,32 @@ import { DEFAULT_TYPOGRAPHY_CONFIG, normalizeTypographyConfig } from "../config/
 import { splitByOmmlTokens, texToOmml } from "./nativeMath";
 import type { ConversionContext, FontChoice, TypographyConfig } from "../types";
 
+const STRIKE_TOKEN_REGEX = /\{\{STRIKE:([^}]+)\}\}/g;
+
 abstract class MarkdownConverter {
   abstract convert(context: ConversionContext): Promise<void>;
 
   protected sanitizeName(raw: string): string {
     const base = raw.replace(/\.[^.]+$/, "").trim();
-    const safe = base.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]+/g, "-").replace(/-+/g, "-");
-    return `${safe || "markdown"}.docx`;
+    const normalized = base.normalize("NFKC");
+
+    const removedInvalid = normalized
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const collapsed = removedInvalid
+      .replace(/\.+$/g, "")
+      .replace(/^\.+/g, "")
+      .replace(/[\s._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(collapsed);
+    const safe = (collapsed || "markdown").slice(0, 80);
+    const finalBase = reserved ? `file-${safe}` : safe;
+
+    return `${finalBase || "markdown"}.docx`;
   }
 
   protected getRunText(run: any): string | null {
@@ -24,6 +43,86 @@ abstract class MarkdownConverter {
 
     const value = textNode.root[textNode.root.length - 1];
     return typeof value === "string" ? value : null;
+  }
+
+  protected isCodeStyledRun(run: any): boolean {
+    const runRoot = Array.isArray(run?.root) ? run.root : [];
+    const rPr = runRoot.find((node: any) => node?.rootKey === "w:rPr");
+    const props = Array.isArray(rPr?.root) ? rPr.root : [];
+    return props.some((p: any) => p?.rootKey === "w:shd" || p?.rootKey === "w:rFonts");
+  }
+
+  protected splitStrikeSegments(text: string): Array<{ type: "text" | "strike"; value: string }> {
+    if (text.includes("{{STRIKE:")) {
+      const segments: Array<{ type: "text" | "strike"; value: string }> = [];
+      let lastIndex = 0;
+
+      for (const match of text.matchAll(STRIKE_TOKEN_REGEX)) {
+        const index = match.index ?? 0;
+        const payload = match[1] || "";
+        if (index > lastIndex) {
+          segments.push({ type: "text", value: text.slice(lastIndex, index) });
+        }
+
+        try {
+          const decoded = decodeURIComponent(payload);
+          if (decoded) {
+            segments.push({ type: "strike", value: decoded });
+          }
+        } catch {
+          segments.push({ type: "text", value: match[0] });
+        }
+
+        lastIndex = index + match[0].length;
+      }
+
+      if (lastIndex < text.length) {
+        segments.push({ type: "text", value: text.slice(lastIndex) });
+      }
+
+      return segments;
+    }
+
+    const result: Array<{ type: "text" | "strike"; value: string }> = [];
+    const regex = /~~([\s\S]+?)~~/g;
+    let lastIndex = 0;
+
+    for (const match of text.matchAll(regex)) {
+      const index = match.index ?? 0;
+      const full = match[0];
+      const inner = match[1] || "";
+
+      if (index > lastIndex) {
+        result.push({ type: "text", value: text.slice(lastIndex, index) });
+      }
+
+      if (inner) {
+        result.push({ type: "strike", value: inner });
+      }
+
+      lastIndex = index + full.length;
+    }
+
+    if (lastIndex < text.length) {
+      result.push({ type: "text", value: text.slice(lastIndex) });
+    }
+
+    return result;
+  }
+
+  protected restoreStrikeTokens(text: string): string {
+    if (!text.includes("{{STRIKE:")) {
+      return text;
+    }
+
+    return text.replace(STRIKE_TOKEN_REGEX, (full: string, payload: string) => {
+      try {
+        const decoded = decodeURIComponent(payload || "");
+        return decoded ? `~~${decoded}~~` : full;
+      } catch {
+        return full;
+      }
+    });
   }
 
   protected normalizeTypography(docOptions: any, fontChoice: FontChoice, typographyConfig: TypographyConfig): void {
@@ -155,10 +254,21 @@ abstract class MarkdownConverter {
       return;
     }
 
-    runProperties.push({
-      rootKey: key,
-      root: [{ rootKey: "_attr", root: { val: size } }]
-    });
+    const imported = ImportedXmlComponent.fromXmlString(
+      `<${key} xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="${size}"/>`
+    ) as any;
+
+    if (typeof imported?.rootKey === "string" && imported.rootKey) {
+      runProperties.push(imported);
+      return;
+    }
+
+    if (Array.isArray(imported?.root)) {
+      const validChildren = imported.root.filter((node: any) => node && typeof node.rootKey === "string");
+      if (validChildren.length) {
+        runProperties.push(...validChildren);
+      }
+    }
   }
 
   protected normalizeParagraphRunSizes(paragraph: any, size: number): void {
@@ -171,8 +281,20 @@ abstract class MarkdownConverter {
 
       let rPr = child.root.find((node: any) => node?.rootKey === "w:rPr");
       if (!rPr) {
-        rPr = { rootKey: "w:rPr", root: [] };
+        const imported = ImportedXmlComponent.fromXmlString(
+          `<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr>`
+        ) as any;
+
+        if (typeof imported?.rootKey === "string" && imported.rootKey === "w:rPr") {
+          rPr = imported;
+        } else if (Array.isArray(imported?.root)) {
+          rPr = imported.root.find((node: any) => node?.rootKey === "w:rPr") || imported;
+        } else {
+          rPr = imported;
+        }
+
         child.root.unshift(rPr);
+        continue;
       }
 
       if (!Array.isArray(rPr.root)) {
@@ -209,7 +331,39 @@ abstract class MarkdownConverter {
           }
 
           const runText = this.getRunText(child);
-          if (!runText || !runText.includes("{{OMML_")) {
+          if (!runText) {
+            rewritten.push(child);
+            continue;
+          }
+
+          if (runText.includes("{{STRIKE:" ) && this.isCodeStyledRun(child)) {
+            rewritten.push(new TextRun(this.restoreStrikeTokens(runText)));
+            continue;
+          }
+
+          if (!runText.includes("{{OMML_") && !runText.includes("~~")) {
+            if (!runText.includes("{{STRIKE:")) {
+              rewritten.push(child);
+              continue;
+            }
+          }
+
+          if ((runText.includes("~~") || runText.includes("{{STRIKE:")) && !runText.includes("{{OMML_") && !this.isCodeStyledRun(child)) {
+            const strikeSegments = this.splitStrikeSegments(runText);
+            if (strikeSegments.some((segment) => segment.type === "strike")) {
+              for (const segment of strikeSegments) {
+                if (!segment.value) continue;
+                if (segment.type === "strike") {
+                  rewritten.push(new TextRun({ text: segment.value, strike: true }));
+                } else {
+                  rewritten.push(new TextRun(segment.value));
+                }
+              }
+              continue;
+            }
+          }
+
+          if (!runText.includes("{{OMML_")) {
             rewritten.push(child);
             continue;
           }
@@ -222,8 +376,17 @@ abstract class MarkdownConverter {
 
           for (const segment of segments) {
             if (segment.type === "text") {
-              if (segment.value) {
-                rewritten.push(new TextRun(segment.value));
+              const strikeSegments = this.splitStrikeSegments(segment.value || "");
+              if (!strikeSegments.length) {
+                continue;
+              }
+              for (const strikeSegment of strikeSegments) {
+                if (!strikeSegment.value) continue;
+                if (strikeSegment.type === "strike") {
+                  rewritten.push(new TextRun({ text: strikeSegment.value, strike: true }));
+                } else {
+                  rewritten.push(new TextRun(strikeSegment.value));
+                }
               }
               continue;
             }
@@ -287,8 +450,8 @@ abstract class MarkdownConverter {
   protected async buildBlob(context: ConversionContext): Promise<Blob> {
     const parsed = await parseToDocxOptions(context.markdown, context.options);
     const docOptions = parsed as any;
-    this.normalizeTypography(docOptions, context.fontChoice, context.typographyConfig || DEFAULT_TYPOGRAPHY_CONFIG);
     this.injectNativeMath(docOptions);
+    this.normalizeTypography(docOptions, context.fontChoice, context.typographyConfig || DEFAULT_TYPOGRAPHY_CONFIG);
     const doc = new Document(docOptions);
     return Packer.toBlob(doc);
   }

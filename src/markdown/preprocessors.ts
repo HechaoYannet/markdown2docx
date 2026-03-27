@@ -235,13 +235,44 @@ function compactInlineLatex(expr: string): string {
     .trim();
 }
 
+function normalizeOverEscapedLatexCommands(markdown: string): string {
+  // Some inputs come from JSON/chat contexts and contain doubled command slashes
+  // like "\\frac". Normalize only inside math delimiters.
+  return markdown
+    .replace(/\$\$([\s\S]*?)\$\$/g, (_match, expr: string) => {
+      const normalized = expr.replace(/\\\\(?=[a-zA-Z]+)/g, "\\");
+      return `$$${normalized}$$`;
+    })
+    .replace(/\$([^\n$]+?)\$/g, (_match, expr: string) => {
+      const normalized = expr.replace(/\\\\(?=[a-zA-Z]+)/g, "\\");
+      return `$${normalized}$`;
+    });
+}
+
+function escapeOperatorAsterisks(text: string): string {
+  // Prevent markdown emphasis parsing from hijacking math/programming operators.
+  // Examples: a*b, x**2, 2*(n+1), A[i]*B[j]
+  const operandLeft = "[A-Za-z0-9_\\)\\]\\}]";
+  const operandRight = "[A-Za-z0-9_\\(\\[\\{]";
+
+  const powerOrDoubleMul = new RegExp(`(?<=${operandLeft})\\*\\*(?=${operandRight})`, "g");
+  const singleMul = new RegExp(`(?<=${operandLeft})\\*(?=${operandRight})`, "g");
+
+  return text
+    .replace(powerOrDoubleMul, "\\\\*\\\\*")
+    .replace(singleMul, "\\\\*");
+}
+
 class BaseSyntaxPreprocessor extends MarkdownPreprocessor {
   process(markdown: string): string {
-    return transformOutsideCode(markdown, (text) => text
-      .replace(/\uFF03/g, "#")
-      .replace(/\uFF0A/g, "*")
-      .replace(/^(#{1,6})([^\s#])/gm, "$1 $2")
-      .replace(/\*\*\s+([^\n*](?:[^\n]*?[^\s*])?)\s+\*\*/g, "**$1**"));
+    return transformOutsideCode(markdown, (text) => {
+      const normalized = text
+        .replace(/\uFF03/g, "#")
+        .replace(/\uFF0A/g, "*");
+
+      const starSafe = escapeOperatorAsterisks(normalized);
+      return starSafe.replace(/^(#{1,6})([^\s#])/gm, "$1 $2");
+    });
   }
 }
 
@@ -290,7 +321,7 @@ class LatexNormalizer extends MarkdownPreprocessor {
       converted.push(line);
     }
 
-    return converted.join("\n");
+    return normalizeOverEscapedLatexCommands(converted.join("\n"));
   }
 }
 
@@ -300,11 +331,26 @@ class DocxMathFallbackPreprocessor extends MarkdownPreprocessor {
   }
 }
 
+class DocxStrikeTokenPreprocessor extends MarkdownPreprocessor {
+  process(markdown: string): string {
+    return markdown.replace(/~~([^\n]+?)~~/g, (_match, inner: string) => {
+      const value = inner.trim();
+      if (!value) {
+        return _match;
+      }
+      return `{{STRIKE:${encodeURIComponent(value)}}}`;
+    });
+  }
+}
+
 class HeadingBoldPreprocessor extends MarkdownPreprocessor {
   process(markdown: string): string {
     return transformOutsideCode(markdown, (text) => text.replace(/^(#{1,6}\s+)(.+)$/gm, (_, prefix: string, title: string) => {
       const clean = title.trim();
-      if (/^\*\*.*\*\*$/.test(clean)) {
+      // Only auto-bold plain headings. If heading already contains markdown syntax,
+      // keep it untouched to avoid malformed nested emphasis.
+      const hasInlineMarkdownSyntax = /[`*_~\[\]()>]/.test(clean);
+      if (hasInlineMarkdownSyntax || /^\*\*.*\*\*$/.test(clean)) {
         return `${prefix}${clean}`;
       }
       return `${prefix}**${clean}**`;
@@ -316,6 +362,7 @@ export class MarkdownPipeline {
   private readonly codeFence = new CodeFenceNormalizer();
   private readonly base = new BaseSyntaxPreprocessor();
   private readonly latex = new LatexNormalizer();
+  private readonly docxStrike = new DocxStrikeTokenPreprocessor();
   private readonly docxMath = new DocxMathFallbackPreprocessor();
   private readonly headingBold = new HeadingBoldPreprocessor();
 
@@ -330,6 +377,7 @@ export class MarkdownPipeline {
     const baseProcessed = this.base.process(fenceProcessed);
     const latexProcessed = transformOutsideCode(baseProcessed, (text) => this.latex.process(text));
     const headingProcessed = this.headingBold.process(latexProcessed);
-    return transformOutsideCode(headingProcessed, (text) => this.docxMath.process(text));
+    const strikeTokenized = transformOutsideCode(headingProcessed, (text) => this.docxStrike.process(text));
+    return transformOutsideCode(strikeTokenized, (text) => this.docxMath.process(text));
   }
 }
