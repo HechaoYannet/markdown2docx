@@ -80,7 +80,7 @@ abstract class MarkdownConverter {
               for (const formula of formulas) {
                 const ommlXml = texToOmml(formula, Boolean(segment.display));
 
-                if (!this.isWellFormedXml(ommlXml)) {
+                if (!this.isWellFormedXml(ommlXml) || !this.isWordCompatibleOmml(ommlXml)) {
                   rewritten.push(new Math({ children: [new MathRun(formula)] }));
                   continue;
                 }
@@ -123,6 +123,24 @@ abstract class MarkdownConverter {
     } catch {
       return false;
     }
+  }
+
+  protected isWordCompatibleOmml(xml: string): boolean {
+    if (!xml || typeof xml !== "string") {
+      return false;
+    }
+
+    // Prevent known malformed wrappers from being injected.
+    if (/<undefined\b/i.test(xml)) {
+      return false;
+    }
+
+    // These OMML containers should not hold bare text directly.
+    if (/<m:(?:e|sub|sup|num|den)>\s*[^<\s][\s\S]*?<\/m:(?:e|sub|sup|num|den)>/i.test(xml)) {
+      return false;
+    }
+
+    return true;
   }
 
   protected async buildBlob(context: ConversionContext): Promise<Blob> {

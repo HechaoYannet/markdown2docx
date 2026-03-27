@@ -4,6 +4,13 @@ abstract class MarkdownPreprocessor {
   abstract process(markdown: string): string;
 }
 
+function compactInlineLatex(expr: string): string {
+  return expr
+    .replace(/\r?\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 class BaseSyntaxPreprocessor extends MarkdownPreprocessor {
   process(markdown: string): string {
     return markdown
@@ -18,7 +25,13 @@ class LatexNormalizer extends MarkdownPreprocessor {
   process(markdown: string): string {
     const bracketNormalized = markdown
       .replace(/\\\[([\s\S]*?)\\\]/g, (_, expr: string) => `\n$$\n${expr.trim()}\n$$\n`)
-      .replace(/\\\((.+?)\\\)/g, (_, expr: string) => `$${expr.trim()}$`);
+      .replace(/\\\(([\s\S]*?)\\\)/g, (_, expr: string) => {
+        const normalized = compactInlineLatex(expr);
+        if (!normalized) {
+          return "";
+        }
+        return `$${normalized}$`;
+      });
 
     const lines = bracketNormalized.split(/\r?\n/);
     const converted: string[] = [];

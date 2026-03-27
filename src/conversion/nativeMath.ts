@@ -1,5 +1,7 @@
 import katex from "katex";
 import { mml2omml } from "mathml2omml";
+import { preprocessLatexForOmml } from "./latexPreprocessor";
+import { postprocessOmml } from "./ommlPostprocess";
 
 const TOKEN_REGEX = /\{\{OMML_(BLOCK|INLINE):([A-Za-z0-9+/=]+)\}\}/g;
 
@@ -78,6 +80,8 @@ function texToMathMl(expression: string, display: boolean): string {
 }
 
 export function texToOmml(expression: string, display: boolean): string {
-  const mathMl = texToMathMl(expression, display);
-  return mml2omml(mathMl);
+  const normalizedExpression = preprocessLatexForOmml(expression);
+  const mathMl = texToMathMl(normalizedExpression, display);
+  const rawOmml = mml2omml(mathMl);
+  return postprocessOmml(rawOmml);
 }
