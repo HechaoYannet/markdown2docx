@@ -47,6 +47,43 @@ export function createAppTemplate(): string {
               </select>
             </label>
           </div>
+          <details class="settings-panel" id="typographySettings">
+            <summary id="typographySummary"></summary>
+            <p id="typographyHint" class="hint settings-hint"></p>
+            <div class="typography-grid">
+              <label class="size-field" for="bodySizeInput">
+                <span id="bodySizeLabel"></span>
+                <input id="bodySizeInput" type="number" min="12" max="96" step="1" />
+              </label>
+              <label class="size-field" for="h1SizeInput">
+                <span id="heading1SizeLabel"></span>
+                <input id="h1SizeInput" type="number" min="12" max="96" step="1" />
+              </label>
+              <label class="size-field" for="h2SizeInput">
+                <span id="heading2SizeLabel"></span>
+                <input id="h2SizeInput" type="number" min="12" max="96" step="1" />
+              </label>
+              <label class="size-field" for="h3SizeInput">
+                <span id="heading3SizeLabel"></span>
+                <input id="h3SizeInput" type="number" min="12" max="96" step="1" />
+              </label>
+              <label class="size-field" for="h4SizeInput">
+                <span id="heading4SizeLabel"></span>
+                <input id="h4SizeInput" type="number" min="12" max="96" step="1" />
+              </label>
+              <label class="size-field" for="h5SizeInput">
+                <span id="heading5SizeLabel"></span>
+                <input id="h5SizeInput" type="number" min="12" max="96" step="1" />
+              </label>
+              <label class="size-field" for="h6SizeInput">
+                <span id="heading6SizeLabel"></span>
+                <input id="h6SizeInput" type="number" min="12" max="96" step="1" />
+              </label>
+            </div>
+            <div class="settings-actions">
+              <button id="resetTypographyBtn" class="ghost" type="button"></button>
+            </div>
+          </details>
           <textarea id="markdownInput" rows="14"></textarea>
           <p id="fontHint" class="hint hint-font"></p>
           <div class="actions">

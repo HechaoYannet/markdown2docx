@@ -341,6 +341,74 @@ button:hover:not(:disabled) {
   margin: 8px 0 0;
 }
 
+.settings-panel {
+  margin: 10px 0 12px;
+  border: 1px solid rgba(103, 93, 82, 0.28);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--surface) 82%, #fff 18%);
+}
+
+.settings-panel > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ink);
+  list-style: none;
+}
+
+.settings-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-panel > summary::after {
+  content: "▾";
+  float: right;
+  color: var(--muted);
+  transform: translateY(1px);
+}
+
+.settings-panel[open] > summary::after {
+  content: "▴";
+}
+
+.settings-hint {
+  margin: 8px 0 10px;
+}
+
+.typography-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.size-field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.size-field input {
+  width: 100%;
+  border: 1px solid rgba(66, 47, 37, 0.24);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 70%, #fff 30%);
+  color: var(--ink);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.size-field input:focus {
+  border-color: rgba(255, 107, 44, 0.68);
+  box-shadow: 0 0 0 3px rgba(255, 107, 44, 0.14);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 .preview-block {
   min-height: 100%;
 }
@@ -467,5 +535,9 @@ button:hover:not(:disabled) {
   .preview {
     min-height: 260px;
     max-height: 45vh;
+  }
+
+  .typography-grid {
+    grid-template-columns: 1fr;
   }
 }

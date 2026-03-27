@@ -2,10 +2,16 @@ import "katex/dist/katex.min.css";
 import { marked } from "marked";
 import markedKatex from "marked-katex-extension";
 import DOMPurify from "dompurify";
+import {
+  DEFAULT_TYPOGRAPHY_CONFIG,
+  loadTypographyConfig,
+  normalizeTypographyConfig,
+  saveTypographyConfig
+} from "./config/typography";
 import { createConverter } from "./conversion/converters";
 import { getInitialLocale, getText } from "./i18n";
 import { MarkdownPipeline } from "./markdown/preprocessors";
-import type { FontChoice, Locale, ThemeMode } from "./types";
+import type { FontChoice, Locale, ThemeMode, TypographyConfig } from "./types";
 import { createAppTemplate } from "./ui/template";
 import "./styles.css";
 
@@ -16,6 +22,7 @@ let currentLocale: Locale = initialLocale;
 let currentFileName = "";
 let currentTheme: ThemeMode = (localStorage.getItem("md2doc-theme") as ThemeMode) || "light";
 let currentFont: FontChoice = "auto";
+let currentTypography: TypographyConfig = loadTypographyConfig();
 
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = createAppTemplate();
 
@@ -31,9 +38,35 @@ const statusEl = document.querySelector<HTMLParagraphElement>("#status")!;
 const convertBtn = document.querySelector<HTMLButtonElement>("#convertBtn")!;
 const clearBtn = document.querySelector<HTMLButtonElement>("#clearBtn")!;
 const pasteClipboardBtn = document.querySelector<HTMLButtonElement>("#pasteClipboardBtn")!;
+const typographySummaryEl = document.querySelector<HTMLElement>("#typographySummary")!;
+const typographyHintEl = document.querySelector<HTMLElement>("#typographyHint")!;
+const bodySizeInput = document.querySelector<HTMLInputElement>("#bodySizeInput")!;
+const h1SizeInput = document.querySelector<HTMLInputElement>("#h1SizeInput")!;
+const h2SizeInput = document.querySelector<HTMLInputElement>("#h2SizeInput")!;
+const h3SizeInput = document.querySelector<HTMLInputElement>("#h3SizeInput")!;
+const h4SizeInput = document.querySelector<HTMLInputElement>("#h4SizeInput")!;
+const h5SizeInput = document.querySelector<HTMLInputElement>("#h5SizeInput")!;
+const h6SizeInput = document.querySelector<HTMLInputElement>("#h6SizeInput")!;
+const resetTypographyBtn = document.querySelector<HTMLButtonElement>("#resetTypographyBtn")!;
 
 function text(key: string): string {
   return getText(currentLocale, key);
+}
+
+function syncTypographyInputs() {
+  bodySizeInput.value = String(currentTypography.bodySize);
+  h1SizeInput.value = String(currentTypography.headings[1]);
+  h2SizeInput.value = String(currentTypography.headings[2]);
+  h3SizeInput.value = String(currentTypography.headings[3]);
+  h4SizeInput.value = String(currentTypography.headings[4]);
+  h5SizeInput.value = String(currentTypography.headings[5]);
+  h6SizeInput.value = String(currentTypography.headings[6]);
+}
+
+function persistTypographyConfig(next: TypographyConfig) {
+  currentTypography = normalizeTypographyConfig(next);
+  saveTypographyConfig(currentTypography);
+  syncTypographyInputs();
 }
 
 function setStatus(message: string, kind: "info" | "success" | "error" = "info") {
@@ -82,6 +115,16 @@ function refreshUI() {
   document.querySelector<HTMLElement>("#previewLabel")!.textContent = text("previewLabel");
   document.querySelector<HTMLElement>("#fontLabel")!.textContent = text("fontLabel");
   document.querySelector<HTMLElement>("#fontHint")!.textContent = text("fontHint");
+  typographySummaryEl.textContent = text("typographySummary");
+  typographyHintEl.textContent = text("typographyHint");
+  document.querySelector<HTMLElement>("#bodySizeLabel")!.textContent = text("bodySizeLabel");
+  document.querySelector<HTMLElement>("#heading1SizeLabel")!.textContent = text("heading1SizeLabel");
+  document.querySelector<HTMLElement>("#heading2SizeLabel")!.textContent = text("heading2SizeLabel");
+  document.querySelector<HTMLElement>("#heading3SizeLabel")!.textContent = text("heading3SizeLabel");
+  document.querySelector<HTMLElement>("#heading4SizeLabel")!.textContent = text("heading4SizeLabel");
+  document.querySelector<HTMLElement>("#heading5SizeLabel")!.textContent = text("heading5SizeLabel");
+  document.querySelector<HTMLElement>("#heading6SizeLabel")!.textContent = text("heading6SizeLabel");
+  resetTypographyBtn.textContent = text("resetTypography");
   markdownInput.placeholder = text("placeholder");
   pasteClipboardBtn.textContent = text("pasteClipboard");
   clearBtn.textContent = text("clear");
@@ -108,6 +151,7 @@ function safeDocxName(): string {
 langSelect.value = currentLocale;
 fontSelect.value = currentFont;
 applyTheme(currentTheme);
+syncTypographyInputs();
 
 langSelect.addEventListener("change", () => {
   currentLocale = langSelect.value === "zh" ? "zh" : "en";
@@ -120,6 +164,76 @@ themeBtn.addEventListener("click", () => {
 
 fontSelect.addEventListener("change", () => {
   currentFont = fontSelect.value as FontChoice;
+});
+
+function bindSizeInput(input: HTMLInputElement, apply: (value: number) => void) {
+  const onCommit = () => {
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) {
+      syncTypographyInputs();
+      return;
+    }
+
+    apply(value);
+    persistTypographyConfig(currentTypography);
+  };
+
+  input.addEventListener("change", onCommit);
+  input.addEventListener("blur", onCommit);
+}
+
+bindSizeInput(bodySizeInput, (value) => {
+  currentTypography = {
+    ...currentTypography,
+    bodySize: value,
+    headings: { ...currentTypography.headings }
+  };
+});
+
+bindSizeInput(h1SizeInput, (value) => {
+  currentTypography = {
+    ...currentTypography,
+    headings: { ...currentTypography.headings, 1: value }
+  };
+});
+bindSizeInput(h2SizeInput, (value) => {
+  currentTypography = {
+    ...currentTypography,
+    headings: { ...currentTypography.headings, 2: value }
+  };
+});
+bindSizeInput(h3SizeInput, (value) => {
+  currentTypography = {
+    ...currentTypography,
+    headings: { ...currentTypography.headings, 3: value }
+  };
+});
+bindSizeInput(h4SizeInput, (value) => {
+  currentTypography = {
+    ...currentTypography,
+    headings: { ...currentTypography.headings, 4: value }
+  };
+});
+bindSizeInput(h5SizeInput, (value) => {
+  currentTypography = {
+    ...currentTypography,
+    headings: { ...currentTypography.headings, 5: value }
+  };
+});
+bindSizeInput(h6SizeInput, (value) => {
+  currentTypography = {
+    ...currentTypography,
+    headings: { ...currentTypography.headings, 6: value }
+  };
+});
+
+resetTypographyBtn.addEventListener("click", () => {
+  currentTypography = {
+    bodySize: DEFAULT_TYPOGRAPHY_CONFIG.bodySize,
+    headings: { ...DEFAULT_TYPOGRAPHY_CONFIG.headings }
+  };
+  persistTypographyConfig(currentTypography);
+  setStatus(text("typographyResetDone"), "success");
 });
 
 fileInput.addEventListener("change", async () => {
@@ -200,6 +314,7 @@ convertBtn.addEventListener("click", async () => {
       markdown: normalized,
       filename: safeDocxName(),
       fontChoice: currentFont,
+      typographyConfig: currentTypography,
       options: { style: { direction: "LTR" } }
     });
     setStatus(`${text("converted")}: ${safeDocxName()}`, "success");

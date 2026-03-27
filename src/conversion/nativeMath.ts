@@ -79,9 +79,23 @@ function texToMathMl(expression: string, display: boolean): string {
   return mathMatch ? mathMatch[0] : rendered;
 }
 
+function escapeXmlText(value: string): string {
+  return value
+    .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9A-Fa-f]+);)/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function sanitizeOmmlTextNodes(omml: string): string {
+  return omml.replace(/(<(?:m|w):t\b[^>]*>)([\s\S]*?)(<\/(?:m|w):t>)/g, (_match, openTag: string, text: string, closeTag: string) => {
+    return `${openTag}${escapeXmlText(text)}${closeTag}`;
+  });
+}
+
 export function texToOmml(expression: string, display: boolean): string {
   const normalizedExpression = preprocessLatexForOmml(expression);
   const mathMl = texToMathMl(normalizedExpression, display);
   const rawOmml = mml2omml(mathMl);
-  return postprocessOmml(rawOmml);
+  const sanitized = sanitizeOmmlTextNodes(rawOmml);
+  return postprocessOmml(sanitized);
 }
