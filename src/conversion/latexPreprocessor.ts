@@ -72,6 +72,146 @@ function readScript(input: string, start: number): number {
   return start + 1;
 }
 
+function skipIntegralSpacing(input: string, start: number): number {
+  let cursor = start;
+
+  while (cursor < input.length) {
+    if (/\s/.test(input[cursor])) {
+      cursor += 1;
+      continue;
+    }
+
+    if (input[cursor] !== "\\") break;
+
+    const spacingMatch = input.slice(cursor).match(/^\\(?:,|!|;|:|quad|qquad)/);
+    if (!spacingMatch) break;
+    cursor += spacingMatch[0].length;
+  }
+
+  return cursor;
+}
+
+function readDifferential(input: string, start: number): number {
+  let cursor = skipIntegralSpacing(input, start);
+
+  if (cursor >= input.length) return -1;
+
+  if (input.slice(cursor).startsWith("\\mathrm{d}")) {
+    cursor += "\\mathrm{d}".length;
+  } else if (input[cursor] === "d") {
+    cursor += 1;
+  } else {
+    return -1;
+  }
+
+  cursor = skipIntegralSpacing(input, cursor);
+  if (cursor >= input.length) return -1;
+
+  return readScript(input, cursor);
+}
+
+function wrapIntegralOperand(expression: string): string {
+  let out = "";
+  let cursor = 0;
+
+  while (cursor < expression.length) {
+    // `\b` does not match before `_`, so use a stricter command boundary check.
+    const intMatch = expression.slice(cursor).match(/^\\int(?![a-zA-Z])/);
+    if (!intMatch) {
+      out += expression[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    const intStart = cursor;
+    cursor += intMatch[0].length;
+
+    // Parse optional _{...}/^{...} scripts attached to \int.
+    for (let loops = 0; loops < 2; loops += 1) {
+      while (cursor < expression.length && /\s/.test(expression[cursor])) cursor += 1;
+      if (expression[cursor] !== "_" && expression[cursor] !== "^") break;
+      cursor += 1;
+      while (cursor < expression.length && /\s/.test(expression[cursor])) cursor += 1;
+      cursor = readScript(expression, cursor);
+    }
+
+    while (cursor < expression.length && /\s/.test(expression[cursor])) cursor += 1;
+    if (cursor >= expression.length) {
+      out += expression.slice(intStart, cursor);
+      continue;
+    }
+
+    if (expression[cursor] === "{") {
+      const groupEnd = readGroup(expression, cursor);
+      const diffAfterGroup = readDifferential(expression, groupEnd);
+
+      if (diffAfterGroup === -1) {
+        out += expression.slice(intStart, groupEnd);
+        cursor = groupEnd;
+        continue;
+      }
+
+      const mergedBody = expression.slice(cursor, diffAfterGroup).trim();
+      if (!mergedBody) {
+        out += expression.slice(intStart, groupEnd);
+        cursor = groupEnd;
+        continue;
+      }
+
+      out += `${expression.slice(intStart, cursor)}{${mergedBody}}`;
+      cursor = diffAfterGroup;
+      continue;
+    }
+
+    const bodyStart = cursor;
+    let bodyEnd = -1;
+    let depthBrace = 0;
+    let depthParen = 0;
+    let depthBracket = 0;
+
+    for (let i = cursor; i < expression.length; i += 1) {
+      const ch = expression[i];
+
+      if (ch === "{") depthBrace += 1;
+      if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+      if (ch === "(") depthParen += 1;
+      if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+      if (ch === "[") depthBracket += 1;
+      if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+
+      if (depthBrace !== 0 || depthParen !== 0 || depthBracket !== 0) continue;
+
+      const diffEnd = readDifferential(expression, i);
+      if (diffEnd !== -1) {
+        bodyEnd = diffEnd;
+        break;
+      }
+
+      if (ch === "=" || ch === "<" || ch === ">" || ch === "," || ch === ";") {
+        break;
+      }
+    }
+
+    if (bodyEnd === -1) {
+      out += expression.slice(intStart, bodyStart);
+      cursor = bodyStart;
+      continue;
+    }
+
+    const body = expression.slice(bodyStart, bodyEnd).trim();
+    if (!body) {
+      out += expression.slice(intStart, bodyStart);
+      cursor = bodyStart;
+      continue;
+    }
+
+    out += `${expression.slice(intStart, bodyStart)}{${body}}`;
+    cursor = bodyEnd;
+  }
+
+  return out;
+}
+
 function wrapNaryOperands(expression: string): string {
   let out = "";
   let cursor = 0;
@@ -143,6 +283,7 @@ function wrapNaryOperands(expression: string): string {
 const RULES: LatexRule[] = [
   wrapCommandParenthesisGroup,
   normalizeMidOperators,
+  wrapIntegralOperand,
   wrapNaryOperands
 ];
 
