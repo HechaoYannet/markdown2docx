@@ -85,6 +85,29 @@ npm run build
 npm run preview
 ```
 
+## 部署到 GitHub Pages
+
+本项目已配置 GitHub Actions 自动部署。
+
+### 1. 首次启用 Pages
+
+1. 打开仓库 Settings -> Pages。
+2. Source 选择 GitHub Actions。
+
+### 2. 触发部署
+
+1. 将变更推送到 `main` 分支。
+2. 等待 Actions 中 Deploy to GitHub Pages 工作流完成。
+3. 访问页面：`https://hechaoyannet.github.io/markdown2docx/`。
+
+### 3. 本地验证
+
+```bash
+npm run build
+```
+
+如果构建成功，说明页面产物可用于部署。
+
 ## 用户使用流程
 
 1. 在浏览器打开应用。
